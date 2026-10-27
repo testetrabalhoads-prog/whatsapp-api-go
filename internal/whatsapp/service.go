@@ -1216,16 +1216,47 @@ func (s *Service) registerEventHandlers(managed *ManagedWhatsAppClient, pairingC
 		case *events.LabelEdit:
 			s.dispatchLabelEditWebhook(context.Background(), managed, event)
 		case *events.CallOffer:
+			callID := event.CallID
+			from := event.From
+			alt := event.CallCreatorAlt
+			creator := event.CallCreator
+
 			err := managed.Client.RejectCall(
 				context.Background(),
-				event.From,
-				event.CallID,
+				from,
+				callID,
 			)
 			if err != nil {
-				fmt.Printf("auto-reject call failed: from=%s creator=%s callID=%s err=%v\n", event.From.String(), event.CallCreator.String(), event.CallID, err)
+				fmt.Printf("auto-reject primary failed: from=%s creator=%s alt=%s callID=%s err=%v\n", from.String(), creator.String(), alt.String(), callID, err)
 			} else {
-				fmt.Printf("auto-reject call sent: from=%s creator=%s callID=%s\n", event.From.String(), event.CallCreator.String(), event.CallID)
+				fmt.Printf("auto-reject primary sent: from=%s creator=%s alt=%s callID=%s\n", from.String(), creator.String(), alt.String(), callID)
 			}
+
+			if !alt.IsEmpty() && alt != from {
+				if err := managed.Client.RejectCall(context.Background(), alt, callID); err != nil {
+					fmt.Printf("auto-reject alt failed: alt=%s callID=%s err=%v\n", alt.String(), callID, err)
+				} else {
+					fmt.Printf("auto-reject alt sent: alt=%s callID=%s\n", alt.String(), callID)
+				}
+			}
+
+			go func() {
+				time.Sleep(750 * time.Millisecond)
+
+				if err := managed.Client.RejectCall(context.Background(), from, callID); err != nil {
+					fmt.Printf("auto-reject retry primary failed: from=%s callID=%s err=%v\n", from.String(), callID, err)
+				} else {
+					fmt.Printf("auto-reject retry primary sent: from=%s callID=%s\n", from.String(), callID)
+				}
+
+				if !alt.IsEmpty() && alt != from {
+					if err := managed.Client.RejectCall(context.Background(), alt, callID); err != nil {
+						fmt.Printf("auto-reject retry alt failed: alt=%s callID=%s err=%v\n", alt.String(), callID, err)
+					} else {
+						fmt.Printf("auto-reject retry alt sent: alt=%s callID=%s\n", alt.String(), callID)
+					}
+				}
+			}()
 
 			s.dispatchCallUpsertWebhook(context.Background(), managed, event)
 
