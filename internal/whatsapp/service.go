@@ -1216,31 +1216,28 @@ func (s *Service) registerEventHandlers(managed *ManagedWhatsAppClient, pairingC
 		case *events.LabelEdit:
 			s.dispatchLabelEditWebhook(context.Background(), managed, event)
 		case *events.CallOffer:
-    _ = managed.Client.RejectCall(
-        context.Background(),
-        event.CallCreator,
-        event.CallID,
-    )
+			err := managed.Client.RejectCall(
+				context.Background(),
+				event.From,
+				event.CallID,
+			)
+			if err != nil {
+				fmt.Printf("auto-reject call failed: from=%s creator=%s callID=%s err=%v\n", event.From.String(), event.CallCreator.String(), event.CallID, err)
+			} else {
+				fmt.Printf("auto-reject call sent: from=%s creator=%s callID=%s\n", event.From.String(), event.CallCreator.String(), event.CallID)
+			}
 
-    s.dispatchCallUpsertWebhook(
-        context.Background(),
-        managed,
-        event,
-    )
+			s.dispatchCallUpsertWebhook(context.Background(), managed, event)
 
-case *events.CallAccept,
-    *events.CallOfferNotice,
-    *events.CallPreAccept,
-    *events.CallTransport,
-    *events.CallTerminate,
-    *events.CallReject,
-    *events.CallRelayLatency,
-    *events.UnknownCallEvent:
-    s.dispatchCallUpsertWebhook(
-        context.Background(),
-        managed,
-        event,
-    )
+		case *events.CallAccept,
+			*events.CallOfferNotice,
+			*events.CallPreAccept,
+			*events.CallTransport,
+			*events.CallTerminate,
+			*events.CallReject,
+			*events.CallRelayLatency,
+			*events.UnknownCallEvent:
+			s.dispatchCallUpsertWebhook(context.Background(), managed, event)
 		case *events.GroupInfo:
 			s.dispatchGroupInfoWebhooks(context.Background(), managed, event)
 		case *events.JoinedGroup:
