@@ -1215,16 +1215,32 @@ func (s *Service) registerEventHandlers(managed *ManagedWhatsAppClient, pairingC
 			s.dispatchLabelAssociationWebhook(context.Background(), managed, event)
 		case *events.LabelEdit:
 			s.dispatchLabelEditWebhook(context.Background(), managed, event)
-		case *events.CallOffer,
-			*events.CallAccept,
-			*events.CallOfferNotice,
-			*events.CallPreAccept,
-			*events.CallTransport,
-			*events.CallTerminate,
-			*events.CallReject,
-			*events.CallRelayLatency,
-			*events.UnknownCallEvent:
-			s.dispatchCallUpsertWebhook(context.Background(), managed, event)
+		case *events.CallOffer:
+    _ = managed.Client.RejectCall(
+        context.Background(),
+        event.CallCreator,
+        event.CallID,
+    )
+
+    s.dispatchCallUpsertWebhook(
+        context.Background(),
+        managed,
+        event,
+    )
+
+case *events.CallAccept,
+    *events.CallOfferNotice,
+    *events.CallPreAccept,
+    *events.CallTransport,
+    *events.CallTerminate,
+    *events.CallReject,
+    *events.CallRelayLatency,
+    *events.UnknownCallEvent:
+    s.dispatchCallUpsertWebhook(
+        context.Background(),
+        managed,
+        event,
+    )
 		case *events.GroupInfo:
 			s.dispatchGroupInfoWebhooks(context.Background(), managed, event)
 		case *events.JoinedGroup:
