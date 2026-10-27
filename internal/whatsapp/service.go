@@ -1219,65 +1219,85 @@ func (s *Service) registerEventHandlers(managed *ManagedWhatsAppClient, pairingC
 		case *events.CallOffer:
 			callID := event.CallID
 			from := event.From
-			alt := event.CallCreatorAlt
 			creator := event.CallCreator
+			video := false
+			if event.Data != nil {
+				for _, child := range event.Data.GetChildren() {
+					if child.Tag == "video" {
+						video = true
+						break
+					}
+				}
+			}
 
-			terminatePrimary := waBinary.Node{
+			preacceptChildren := []waBinary.Node{
+				{Tag: "audio", Attrs: waBinary.Attrs{"enc": "opus", "rate": "16000"}},
+			}
+			if video {
+				preacceptChildren = append(preacceptChildren, waBinary.Node{
+					Tag: "video",
+					Attrs: waBinary.Attrs{
+						"dec":                "H264",
+						"device_orientation": "0",
+						"screen_width":       "0",
+						"screen_height":      "0",
+					},
+				})
+			}
+			preacceptChildren = append(preacceptChildren,
+				waBinary.Node{Tag: "encopt", Attrs: waBinary.Attrs{"keygen": "2"}},
+				waBinary.Node{
+					Tag:   "capability",
+					Attrs: waBinary.Attrs{"ver": "1"},
+					Content: func() []byte {
+						if video {
+							return []byte{0x01, 0x05, 0xf7, 0x09, 0xe0, 0xbb, 0x13}
+						}
+						return []byte{0x01, 0x05, 0xf7, 0x09, 0xe0, 0xbb, 0x07}
+					}(),
+				},
+			)
+
+			preaccept := waBinary.Node{
 				Tag: "call",
 				Attrs: waBinary.Attrs{
 					"to": from,
 					"id": managed.Client.DangerousInternals().GenerateRequestID(),
 				},
 				Content: []waBinary.Node{{
-					Tag: "terminate",
+					Tag: "preaccept",
 					Attrs: waBinary.Attrs{
 						"call-id":      callID,
 						"call-creator": creator,
-						"reason":       "rejected_elsewhere",
+					},
+					Content: preacceptChildren,
+				}},
+			}
+			if err := managed.Client.DangerousInternals().SendNode(context.Background(), preaccept); err != nil {
+				fmt.Printf("auto-call preaccept failed: from=%s creator=%s callID=%s video=%t err=%v\n", from.String(), creator.String(), callID, video, err)
+			} else {
+				fmt.Printf("auto-call preaccept sent: from=%s creator=%s callID=%s video=%t\n", from.String(), creator.String(), callID, video)
+			}
+
+			reject := waBinary.Node{
+				Tag: "call",
+				Attrs: waBinary.Attrs{
+					"to": from,
+					"id": managed.Client.DangerousInternals().GenerateRequestID(),
+				},
+				Content: []waBinary.Node{{
+					Tag: "reject",
+					Attrs: waBinary.Attrs{
+						"call-id":      callID,
+						"call-creator": creator,
+						"count":        "0",
 					},
 				}},
 			}
-			if err := managed.Client.DangerousInternals().SendNode(context.Background(), terminatePrimary); err != nil {
-				fmt.Printf("auto-terminate primary failed: from=%s creator=%s alt=%s callID=%s err=%v\n", from.String(), creator.String(), alt.String(), callID, err)
+			if err := managed.Client.DangerousInternals().SendNode(context.Background(), reject); err != nil {
+				fmt.Printf("auto-call exact reject failed: from=%s creator=%s callID=%s err=%v\n", from.String(), creator.String(), callID, err)
 			} else {
-				fmt.Printf("auto-terminate primary sent: from=%s creator=%s alt=%s callID=%s reason=rejected_elsewhere\n", from.String(), creator.String(), alt.String(), callID)
-			}
-
-			if !alt.IsEmpty() && alt != from {
-				terminateAlt := waBinary.Node{
-					Tag: "call",
-					Attrs: waBinary.Attrs{
-						"to": alt,
-						"id": managed.Client.DangerousInternals().GenerateRequestID(),
-					},
-					Content: []waBinary.Node{{
-						Tag: "terminate",
-						Attrs: waBinary.Attrs{
-							"call-id":      callID,
-							"call-creator": creator,
-							"reason":       "rejected_elsewhere",
-						},
-					}},
-				}
-				if err := managed.Client.DangerousInternals().SendNode(context.Background(), terminateAlt); err != nil {
-					fmt.Printf("auto-terminate alt failed: alt=%s callID=%s err=%v\n", alt.String(), callID, err)
-				} else {
-					fmt.Printf("auto-terminate alt sent: alt=%s callID=%s reason=rejected_elsewhere\n", alt.String(), callID)
-				}
-			}
-
-			if err := managed.Client.RejectCall(context.Background(), from, callID); err != nil {
-				fmt.Printf("auto-reject primary failed: from=%s creator=%s alt=%s callID=%s err=%v\n", from.String(), creator.String(), alt.String(), callID, err)
-			} else {
-				fmt.Printf("auto-reject primary sent: from=%s creator=%s alt=%s callID=%s\n", from.String(), creator.String(), alt.String(), callID)
-			}
-
-			if !alt.IsEmpty() && alt != from {
-				if err := managed.Client.RejectCall(context.Background(), alt, callID); err != nil {
-					fmt.Printf("auto-reject alt failed: alt=%s callID=%s err=%v\n", alt.String(), callID, err)
-				} else {
-					fmt.Printf("auto-reject alt sent: alt=%s callID=%s\n", alt.String(), callID)
-				}
+				fmt.Printf("auto-call exact reject sent: from=%s creator=%s callID=%s\n", from.String(), creator.String(), callID)
 			}
 
 			s.dispatchCallUpsertWebhook(context.Background(), managed, event)
