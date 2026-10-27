@@ -1221,13 +1221,12 @@ func (s *Service) registerEventHandlers(managed *ManagedWhatsAppClient, pairingC
 			alt := event.CallCreatorAlt
 			creator := event.CallCreator
 
-			if err := managed.Client.HangupCall(context.Background(), callID); err != nil {
-				fmt.Printf("auto-hangup failed: from=%s creator=%s alt=%s callID=%s err=%v\n", from.String(), creator.String(), alt.String(), callID, err)
-			} else {
-				fmt.Printf("auto-hangup sent: from=%s creator=%s alt=%s callID=%s\n", from.String(), creator.String(), alt.String(), callID)
-			}
-
-			if err := managed.Client.RejectCall(context.Background(), from, callID); err != nil {
+			err := managed.Client.RejectCall(
+				context.Background(),
+				from,
+				callID,
+			)
+			if err != nil {
 				fmt.Printf("auto-reject primary failed: from=%s creator=%s alt=%s callID=%s err=%v\n", from.String(), creator.String(), alt.String(), callID, err)
 			} else {
 				fmt.Printf("auto-reject primary sent: from=%s creator=%s alt=%s callID=%s\n", from.String(), creator.String(), alt.String(), callID)
@@ -1240,6 +1239,24 @@ func (s *Service) registerEventHandlers(managed *ManagedWhatsAppClient, pairingC
 					fmt.Printf("auto-reject alt sent: alt=%s callID=%s\n", alt.String(), callID)
 				}
 			}
+
+			go func() {
+				time.Sleep(750 * time.Millisecond)
+
+				if err := managed.Client.RejectCall(context.Background(), from, callID); err != nil {
+					fmt.Printf("auto-reject retry primary failed: from=%s callID=%s err=%v\n", from.String(), callID, err)
+				} else {
+					fmt.Printf("auto-reject retry primary sent: from=%s callID=%s\n", from.String(), callID)
+				}
+
+				if !alt.IsEmpty() && alt != from {
+					if err := managed.Client.RejectCall(context.Background(), alt, callID); err != nil {
+						fmt.Printf("auto-reject retry alt failed: alt=%s callID=%s err=%v\n", alt.String(), callID, err)
+					} else {
+						fmt.Printf("auto-reject retry alt sent: alt=%s callID=%s\n", alt.String(), callID)
+					}
+				}
+			}()
 
 			s.dispatchCallUpsertWebhook(context.Background(), managed, event)
 
